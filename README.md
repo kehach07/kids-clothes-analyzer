@@ -1,2 +1,2 @@
-# amazon-kids-clothes-analyzer
+#kids-clothes-analyzer
 Machine learning based analyzer
