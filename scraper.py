@@ -1,12 +1,17 @@
 import time
+import random
 import pandas as pd
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
+
+# =====================================
+# Chrome Setup (Linux safe)
+# =====================================
 options = Options()
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_argument("--no-sandbox")
@@ -21,146 +26,199 @@ driver = webdriver.Chrome(
     options=options
 )
 
-
-# ==============================
-# Setup Chrome Driver
-# ==============================
-# driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-
-# Open Amazon search page
-search_url = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls"
-driver.get(search_url)
-
-# Wait for page to load
-time.sleep(5)
+driver.set_page_load_timeout(30)
 
 
-# ==============================
-# Step 1: Collect Product Links
-# ==============================
-product_links = []
+# =====================================
+# Config
+# =====================================
+BASE_URL = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls&page={}"
+TOTAL_PAGES = 50
+MAX_PRODUCTS = 200
+OUTPUT_FILE = "amazon_kids_clothes.xlsx"
 
-products = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
-
-for product in products[:5]:   # Limit to first 20 products (safe)
-    link = product.get_attribute("href")
-    if link:
-        product_links.append(link)
-
-print("Collected links:", len(product_links))
-
-
-# ==============================
-# Step 2: Visit Each Product
-# ==============================
 data = []
 
-for index, link in enumerate(product_links):
-    print("Processing:", index + 1)
+
+# Helper: get value from multiple possible keys
+def get_value(details, keys):
+    for k in keys:
+        if k in details:
+            return details[k]
+    return ""
+
+
+# =====================================
+# Start Scraping
+# =====================================
+for page in range(1, TOTAL_PAGES + 1):
+
+    if len(data) >= MAX_PRODUCTS:
+        break
+
+    print(f"\n===== Processing Page {page} =====")
 
     try:
-        driver.set_page_load_timeout(30)
-        driver.get(link)
+        driver.get(BASE_URL.format(page))
     except:
-        print("Page timeout. Retrying...")
-        try:
-            driver.get(link)
-        except:
-            print("Skipping:", link)
-            continue
+        print("Page load failed")
+        continue
 
     time.sleep(5)
 
+    products = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
+    product_links = []
 
+    for p in products:
+        link = p.get_attribute("href")
+        if link and "/dp/" in link:
+            product_links.append(link)
 
-    # --------------------------
-    # Basic Details
-    # --------------------------
-    try:
-        title = driver.find_element(By.ID, "productTitle").text.strip()
-    except:
-        title = ""
+    print("Links found:", len(product_links))
 
-    try:
-        price = driver.find_element(By.CSS_SELECTOR, ".a-price .a-offscreen").text
-    except:
-        price = ""
+    # =====================================
+    # Visit Products
+    # =====================================
+    for idx, link in enumerate(product_links):
 
-    try:
-        brand = driver.find_element(By.ID, "bylineInfo").text
-    except:
-        brand = ""
+        if len(data) >= MAX_PRODUCTS:
+            print("\nReached max product limit!")
+            break
 
-    try:
-        image = driver.find_element(By.ID, "imgTagWrapperId") \
-                      .find_element(By.TAG_NAME, "img") \
-                      .get_attribute("src")
-    except:
-        image = ""
+        print(f"Product {idx+1} on page {page}")
 
-    # --------------------------
-    # Product Details Table
-    # --------------------------
-    details = {}
-
-    # Table 1
-    rows = driver.find_elements(By.CSS_SELECTOR, "#productDetails_techSpec_section_1 tr")
-    for row in rows:
         try:
-            key = row.find_element(By.TAG_NAME, "th").text.strip()
-            value = row.find_element(By.TAG_NAME, "td").text.strip()
-            details[key] = value
+            driver.get(link)
         except:
-            pass
+            print("Timeout, skipping")
+            continue
 
-    # Table 2 (some products use this)
-    rows2 = driver.find_elements(By.CSS_SELECTOR, "#productDetails_detailBullets_sections1 tr")
-    for row in rows2:
+        time.sleep(random.randint(4, 7))
+
+        # -------- Basic Info --------
         try:
-            key = row.find_element(By.TAG_NAME, "th").text.strip()
-            value = row.find_element(By.TAG_NAME, "td").text.strip()
-            details[key] = value
+            title = driver.find_element(By.ID, "productTitle").text.strip()
         except:
-            pass
+            title = ""
 
-    # --------------------------
-    # Save Required Fields
-    # --------------------------
-    data.append({
-        "Dress Name": title,
-        "Brand": brand,
-        "Price": price,
-        "Gender": details.get("Department", ""),
-        "Fabric Type": details.get("Material composition", ""),
-        "Material Type": details.get("Material", ""),
-        "Closure type": details.get("Closure type", ""),
-        "Care instructions": details.get("Care instructions", ""),
-        "Age range description": details.get("Age range description", ""),
-        "Fit type": details.get("Fit type", ""),
-        "Sleeve type": details.get("Sleeve type", ""),
-        "Neck style": details.get("Neck style", ""),
-        "Pattern": details.get("Pattern", ""),
-        "Theme": details.get("Theme", ""),
-        "Style": details.get("Style", ""),
-        "Bottom Style": details.get("Bottom style", ""),
-        "Product URL": link,
-        "Image URL": image
-    })
+        try:
+            price = driver.find_element(By.CSS_SELECTOR, ".a-price .a-offscreen").text
+        except:
+            price = ""
 
-    # Small delay to avoid blocking
-    time.sleep(2)
+        try:
+            brand = driver.find_element(By.ID, "bylineInfo").text
+        except:
+            brand = ""
+
+        try:
+            image = driver.find_element(By.ID, "imgTagWrapperId") \
+                .find_element(By.TAG_NAME, "img") \
+                .get_attribute("src")
+        except:
+            image = ""
+
+        # =====================================
+        # Collect ALL product details
+        # =====================================
+        details = {}
+
+        # 1. Technical table
+        rows = driver.find_elements(By.CSS_SELECTOR, "#productDetails_techSpec_section_1 tr")
+        for row in rows:
+            try:
+                key = row.find_element(By.TAG_NAME, "th").text.strip()
+                value = row.find_element(By.TAG_NAME, "td").text.strip()
+                details[key] = value
+            except:
+                pass
+
+        # 2. Detail bullets table
+        rows2 = driver.find_elements(By.CSS_SELECTOR, "#productDetails_detailBullets_sections1 tr")
+        for row in rows2:
+            try:
+                key = row.find_element(By.TAG_NAME, "th").text.strip()
+                value = row.find_element(By.TAG_NAME, "td").text.strip()
+                details[key] = value
+            except:
+                pass
+
+        # 3. Bullet section
+        bullets = driver.find_elements(By.CSS_SELECTOR, "#detailBullets_feature_div li")
+        for bullet in bullets:
+            text = bullet.text
+            if ":" in text:
+                parts = text.split(":", 1)
+                details[parts[0].strip()] = parts[1].strip()
+
+        # 4. Top Highlights (NEW layout)
+        overview_rows = driver.find_elements(By.CSS_SELECTOR, "#productOverview_feature_div tr")
+        for row in overview_rows:
+            try:
+                cols = row.find_elements(By.TAG_NAME, "td")
+                if len(cols) >= 2:
+                    key = cols[0].text.strip()
+                    value = cols[1].text.strip()
+                    details[key] = value
+            except:
+                pass
+
+        # Alternate layout
+        overview_alt = driver.find_elements(By.CSS_SELECTOR, "#poExpander tr")
+        for row in overview_alt:
+            try:
+                cols = row.find_elements(By.TAG_NAME, "td")
+                if len(cols) >= 2:
+                    key = cols[0].text.strip()
+                    value = cols[1].text.strip()
+                    details[key] = value
+            except:
+                pass
+
+        # Debug (optional)
+        # print(details)
+
+        # =====================================
+        # Save Row (flexible mapping)
+        # =====================================
+        data.append({
+            "Dress Name": title,
+            "Brand": brand,
+            "Price": price,
+            "Gender": get_value(details, ["Department"]),
+            "Fabric Type": get_value(details, ["Material composition", "Fabric", "Fabric type"]),
+            "Material Type": get_value(details, ["Material type", "Material"]),
+            "Closure type": get_value(details, ["Closure type"]),
+            "Care instructions": get_value(details, ["Care instructions"]),
+            "Age range description": get_value(details, ["Age range description"]),
+            "Fit type": get_value(details, ["Fit type"]),
+            "Sleeve type": get_value(details, ["Sleeve type"]),
+            "Neck style": get_value(details, ["Neck style"]),
+            "Pattern": get_value(details, ["Pattern"]),
+            "Theme": get_value(details, ["Theme"]),
+            "Style": get_value(details, ["Style"]),
+            "Length": get_value(details, ["Length"]),
+            "Bottom Style": get_value(details, ["Bottom style"]),
+            "Product URL": link,
+            "Image URL": image
+        })
+
+        print(f"Collected: {len(data)} / {MAX_PRODUCTS}")
+        time.sleep(random.randint(2, 4))
+
+    # =====================================
+    # Batch Save
+    # =====================================
+    df = pd.DataFrame(data)
+    df.to_excel(OUTPUT_FILE, index=False)
+    print(f"Saved after page {page} | Total: {len(data)}")
 
 
-# ==============================
-# Step 3: Close Browser
-# ==============================
+# =====================================
+# Close
+# =====================================
 driver.quit()
 
-
-# ==============================
-# Step 4: Save to Excel
-# ==============================
-df = pd.DataFrame(data)
-df.to_excel("amazon_kids_clothes.xlsx", index=False)
-
-print("Excel file saved: amazon_kids_clothes.xlsx")
+print("\nScraping completed!")
+print("Total collected:", len(data))
+print("File saved:", OUTPUT_FILE)
