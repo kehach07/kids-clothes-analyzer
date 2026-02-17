@@ -35,13 +35,10 @@ def get_links():
     soup = BeautifulSoup(res.text, "lxml")
 
     links = []
-
     for a in soup.select("a.a-link-normal.s-no-outline"):
         href = a.get("href")
-
         if href and "/dp/" in href and "aax" not in href:
             link = "https://www.amazon.in" + href.split("?")[0]
-
             if link not in links:
                 links.append(link)
 
@@ -53,25 +50,29 @@ def get_links():
 
 
 # ======================
-# SECTION 1: TOP HIGHLIGHTS / STYLE
+# SECTION 1: ALL TABLES (Top highlights + Style + Materials & Care)
 # ======================
-def extract_product_overview(soup):
+def extract_all_tables(soup):
     data = {}
 
-    rows = soup.select("#productOverview_feature_div tr")
+    # All Amazon spec tables
+    tables = soup.select("table.a-normal")
 
-    for row in rows:
-        cols = row.find_all("td")
-        if len(cols) == 2:
-            key = clean(cols[0].get_text())
-            value = clean(cols[1].get_text())
-            data[key] = value
+    for table in tables:
+        rows = table.select("tr")
+        for row in rows:
+            cols = row.find_all(["th", "td"])
+            if len(cols) == 2:
+                key = clean(cols[0].get_text())
+                value = clean(cols[1].get_text())
+                if key and value:
+                    data[key] = value
 
     return data
 
 
 # ======================
-# SECTION 2: PRODUCT DETAILS TABLES
+# SECTION 2: PRODUCT DETAILS (Manufacturer, Generic, etc.)
 # ======================
 def extract_product_details(soup):
     data = {}
@@ -84,11 +85,8 @@ def extract_product_details(soup):
     for row in rows:
         th = row.find("th")
         td = row.find("td")
-
         if th and td:
-            key = clean(th.get_text())
-            value = clean(td.get_text())
-            data[key] = value
+            data[clean(th.text)] = clean(td.text)
 
     return data
 
@@ -98,12 +96,10 @@ def extract_product_details(soup):
 # ======================
 def extract_detail_bullets(soup):
     data = {}
-
     items = soup.select("#detailBullets_feature_div li")
 
     for li in items:
         text = clean(li.get_text(" ", strip=True))
-
         if ":" in text:
             key, value = text.split(":", 1)
             data[clean(key)] = clean(value)
@@ -112,51 +108,44 @@ def extract_detail_bullets(soup):
 
 
 # ======================
-# SECTION 4: EXTRA TABLES (Style / Materials & Care)
-# ======================
-def extract_extra_tables(soup):
-    data = {}
-
-    tables = soup.select("table.a-normal")
-
-    for table in tables:
-        rows = table.select("tr")
-        for row in rows:
-            cols = row.find_all(["th", "td"])
-            if len(cols) == 2:
-                key = clean(cols[0].get_text())
-                value = clean(cols[1].get_text())
-
-                if key and value:
-                    data[key] = value
-
-    return data
-
-
-# ======================
-# SECTION 5: SIZE / COLOUR (Variation)
+# SECTION 4: VARIATIONS (Size / Colour)
 # ======================
 def extract_variations(soup):
     data = {}
 
-    size_selected = soup.select_one("#variation_size_name .selection")
-    if size_selected:
-        data["Size"] = clean(size_selected.get_text())
+    size = soup.select_one("#variation_size_name .selection")
+    if size:
+        data["Size"] = clean(size.text)
 
-    color_selected = soup.select_one("#variation_color_name .selection")
-    if color_selected:
-        data["Colour"] = clean(color_selected.get_text())
+    color = soup.select_one("#variation_color_name .selection")
+    if color:
+        data["Colour"] = clean(color.text)
 
     return data
 
 
 # ======================
-# SECTION 6: ABOUT
+# SECTION 5: ABOUT (also parse key:value if present)
 # ======================
 def extract_about(soup):
+    data = {}
     bullets = soup.select("#feature-bullets li span")
-    texts = [clean(b.get_text()) for b in bullets if clean(b.get_text())]
-    return " | ".join(texts)
+
+    texts = []
+    for b in bullets:
+        text = clean(b.get_text())
+        if not text:
+            continue
+
+        texts.append(text)
+
+        # Extract structured info if exists
+        if ":" in text:
+            key, value = text.split(":", 1)
+            data[clean(key)] = clean(value)
+
+    data["About"] = " | ".join(texts)
+    return data
 
 
 # ======================
@@ -170,38 +159,39 @@ def extract_product(url):
 
     product = {"URL": url}
 
-    # Title
+    # Dress name
     title = soup.select_one("#productTitle")
     if title:
-        product["Dress name"] = clean(title.get_text())
+        product["Dress name"] = clean(title.text)
 
     # Image
     img = soup.select_one("#landingImage")
     if img:
         product["Image link"] = img.get("src")
 
-    # Extract from all sections
-    product.update(extract_product_overview(soup))
+    # Extract all sections
+    product.update(extract_all_tables(soup))        # Top highlights + Style + Materials
     product.update(extract_product_details(soup))
     product.update(extract_detail_bullets(soup))
-    product.update(extract_extra_tables(soup))
     product.update(extract_variations(soup))
-    product["About"] = extract_about(soup)
+    product.update(extract_about(soup))
 
     # ======================
-    # PRINT IMPORTANT FEATURES
+    # Print clothing-specific fields
     # ======================
-    important_fields = [
-        "Size", "Colour", "Pattern", "Sleeve Type", "Sleeve type",
-        "Neck style", "Material composition", "Material type",
-        "Closure Type", "Bottom Style", "Fabric Type",
-        "Occasion", "Length", "Style Name"
+    wanted = [
+        "Size", "Colour", "Material composition", "Material Type",
+        "Material type", "Fabric Type", "Pattern", "Sleeve Type",
+        "Sleeve type", "Neck Style", "Neck style", "Length",
+        "Closure Type", "Bottom Style", "Style Name",
+        "Design Name", "Occasion", "Fit Type",
+        "Product Care Instructions"
     ]
 
-    print("Important extracted:")
-    for f in important_fields:
-        if f in product:
-            print(f, ":", product[f])
+    print("Extracted important:")
+    for w in wanted:
+        if w in product:
+            print(w, ":", product[w])
 
     print("Total fields:", len(product))
 
@@ -213,7 +203,6 @@ def extract_product(url):
 # ======================
 def main():
     links = get_links()
-
     all_data = []
 
     for link in links:
@@ -223,7 +212,7 @@ def main():
         except Exception as e:
             print("Error:", e)
 
-        time.sleep(random.uniform(2, 4))  # avoid blocking
+        time.sleep(random.uniform(2, 4))
 
     df = pd.DataFrame(all_data)
     df.to_excel(OUTPUT_FILE, index=False)
