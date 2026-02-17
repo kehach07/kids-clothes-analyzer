@@ -12,13 +12,25 @@ TOTAL_PRODUCTS = 10
 OUTPUT_FILE = "amazon_kids_full_features.xlsx"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    "User-Agent": "Mozilla/5.0",
     "Accept-Language": "en-IN,en;q=0.9"
 }
 
+# ======================
+# REQUIRED FEATURES LIST
+# ======================
+REQUIRED_FIELDS = [
+    "Dress name", "Generic Name", "Department", "Size", "Colour",
+    "Material composition", "Weave Type", "Reusability", "Finish type",
+    "Material type", "Fit Type", "Length", "Collar style", "Waist style",
+    "Occasion", "Sleeve type", "Season", "Neck style", "Embroidery Type",
+    "Pattern", "Number of Items", "Theme", "Style Name", "Closure Type",
+    "Product Care Instructions", "Age Range Description", "Design Name",
+    "Fabric Type", "Bottom Style", "Back Style", "Strap Type", "Image link"
+]
 
 # ======================
-# CLEAN TEXT
+# CLEAN
 # ======================
 def clean(text):
     if not text:
@@ -27,10 +39,9 @@ def clean(text):
 
 
 # ======================
-# GET PRODUCT LINKS
+# GET LINKS
 # ======================
 def get_links():
-    print("Collecting product links...")
     res = requests.get(BASE_URL, headers=HEADERS)
     soup = BeautifulSoup(res.text, "lxml")
 
@@ -45,34 +56,30 @@ def get_links():
         if len(links) >= TOTAL_PRODUCTS:
             break
 
-    print("Collected:", len(links))
     return links
 
 
 # ======================
-# SECTION 1: ALL TABLES (Top highlights + Style + Materials & Care)
+# EXTRACT ALL TABLE DATA
 # ======================
-def extract_all_tables(soup):
+def extract_tables(soup):
     data = {}
 
-    # All Amazon spec tables
     tables = soup.select("table.a-normal")
-
     for table in tables:
-        rows = table.select("tr")
-        for row in rows:
+        for row in table.select("tr"):
             cols = row.find_all(["th", "td"])
             if len(cols) == 2:
                 key = clean(cols[0].get_text())
                 value = clean(cols[1].get_text())
-                if key and value:
+                if key:
                     data[key] = value
 
     return data
 
 
 # ======================
-# SECTION 2: PRODUCT DETAILS (Manufacturer, Generic, etc.)
+# PRODUCT DETAILS
 # ======================
 def extract_product_details(soup):
     data = {}
@@ -92,7 +99,7 @@ def extract_product_details(soup):
 
 
 # ======================
-# SECTION 3: DETAIL BULLETS
+# DETAIL BULLETS
 # ======================
 def extract_detail_bullets(soup):
     data = {}
@@ -108,7 +115,7 @@ def extract_detail_bullets(soup):
 
 
 # ======================
-# SECTION 4: VARIATIONS (Size / Colour)
+# VARIATIONS
 # ======================
 def extract_variations(soup):
     data = {}
@@ -125,7 +132,7 @@ def extract_variations(soup):
 
 
 # ======================
-# SECTION 5: ABOUT (also parse key:value if present)
+# ABOUT
 # ======================
 def extract_about(soup):
     data = {}
@@ -139,7 +146,6 @@ def extract_about(soup):
 
         texts.append(text)
 
-        # Extract structured info if exists
         if ":" in text:
             key, value = text.split(":", 1)
             data[clean(key)] = clean(value)
@@ -149,17 +155,18 @@ def extract_about(soup):
 
 
 # ======================
-# PRODUCT SCRAPER
+# MAIN PRODUCT SCRAPER
 # ======================
 def extract_product(url):
-    print("\nScraping:", url)
+    print("\n==============================")
+    print("Scraping:", url)
 
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, "lxml")
 
     product = {"URL": url}
 
-    # Dress name
+    # Title
     title = soup.select_one("#productTitle")
     if title:
         product["Dress name"] = clean(title.text)
@@ -169,31 +176,26 @@ def extract_product(url):
     if img:
         product["Image link"] = img.get("src")
 
-    # Extract all sections
-    product.update(extract_all_tables(soup))        # Top highlights + Style + Materials
+    # Merge all sources
+    product.update(extract_tables(soup))
     product.update(extract_product_details(soup))
     product.update(extract_detail_bullets(soup))
     product.update(extract_variations(soup))
     product.update(extract_about(soup))
 
     # ======================
-    # Print clothing-specific fields
+    # DEBUG OUTPUT
     # ======================
-    wanted = [
-        "Size", "Colour", "Material composition", "Material Type",
-        "Material type", "Fabric Type", "Pattern", "Sleeve Type",
-        "Sleeve type", "Neck Style", "Neck style", "Length",
-        "Closure Type", "Bottom Style", "Style Name",
-        "Design Name", "Occasion", "Fit Type",
-        "Product Care Instructions"
-    ]
+    print("\nAll Extracted Fields:")
+    for k in product.keys():
+        print("-", k)
 
-    print("Extracted important:")
-    for w in wanted:
-        if w in product:
-            print(w, ":", product[w])
+    print("\nMissing Required Fields:")
+    for field in REQUIRED_FIELDS:
+        if field not in product:
+            print("Missing:", field)
 
-    print("Total fields:", len(product))
+    print("Total extracted:", len(product))
 
     return product
 
