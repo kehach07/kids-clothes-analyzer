@@ -1,175 +1,210 @@
 import time
+import random
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
-# ======================
-# CONFIG
-# ======================
-BASE_URL = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls&page={}"
-BATCH_SIZE = 100
-MAX_PAGES = 10   # adjust if needed
+BASE_URL = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls&page=1"
+TOTAL_PRODUCTS = 10
 OUTPUT_FILE = "amazon_kids_dresses.xlsx"
 
 
 # ======================
-# SETUP DRIVER
+# DRIVER
 # ======================
-chrome_options = Options()
-chrome_options.add_argument("--start-maximized")
-chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+def get_driver():
+    options = Options()
+    options.add_argument("--start-maximized")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
-driver = webdriver.Chrome(options=chrome_options)
-driver.implicitly_wait(5)
+    service = Service(ChromeDriverManager().install())
+    return webdriver.Chrome(service=service, options=options)
+
+
+driver = get_driver()
+
+
+def human_delay(a=2, b=4):
+    time.sleep(random.uniform(a, b))
 
 
 # ======================
-# SCROLL FUNCTION
+# DEEP SCROLL
 # ======================
-def scroll_page():
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    for _ in range(5):
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+def deep_scroll():
+    print("Scrolling page...")
+    height = driver.execute_script("return document.body.scrollHeight")
+
+    for i in range(0, height, 400):
+        driver.execute_script(f"window.scrollTo(0, {i});")
+        time.sleep(0.5)
+
     time.sleep(2)
 
 
 # ======================
-# GET PRODUCT LINKS
+# CLICK TOGGLE BY TEXT
 # ======================
-def get_product_links():
-    links = set()
-
-    for page in range(1, MAX_PAGES + 1):
-        print(f"\nCollecting links from page {page}")
-        driver.get(BASE_URL.format(page))
-        scroll_page()
-
-        products = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
-
-        for p in products:
-            link = p.get_attribute("href")
-            if link and "/dp/" in link:
-                links.add(link)
-
-        if len(links) >= BATCH_SIZE:
-            break
-
-    print(f"Total links collected: {len(links)}")
-    return list(links)[:BATCH_SIZE]
-
-
-# ======================
-# EXTRACT PRODUCT DATA
-# ======================
-def extract_product_data(url):
-    data = {"Product URL": url}
-
-    driver.get(url)
-    time.sleep(2)
-    scroll_page()
-
-    # Dress Name
+def click_if_exists(text):
     try:
-        title = driver.find_element(By.ID, "productTitle").text.strip()
-        data["Dress name"] = title
-    except:
-        data["Dress name"] = ""
-
-    # Image
-    try:
-        img = driver.find_element(By.ID, "landingImage").get_attribute("src")
-        data["Image link"] = img
-    except:
-        data["Image link"] = ""
-
-    # ======================
-    # PRODUCT DETAILS TABLE
-    # ======================
-    try:
-        tables = driver.find_elements(By.CSS_SELECTOR, "#productDetails_techSpec_section_1 tr")
-        for row in tables:
-            key = row.find_element(By.TAG_NAME, "th").text.strip()
-            value = row.find_element(By.TAG_NAME, "td").text.strip()
-            data[key] = value
+        el = driver.find_element(By.XPATH, f"//span[contains(text(),'{text}')]")
+        driver.execute_script("arguments[0].click();", el)
+        time.sleep(1)
+        print(f"Opened: {text}")
     except:
         pass
 
-    # ======================
-    # ADDITIONAL DETAILS
-    # ======================
+
+# ======================
+# EXPAND ABOUT
+# ======================
+def expand_about():
     try:
-        tables2 = driver.find_elements(By.CSS_SELECTOR, "#productDetails_detailBullets_sections1 tr")
-        for row in tables2:
-            key = row.find_element(By.TAG_NAME, "th").text.strip()
-            value = row.find_element(By.TAG_NAME, "td").text.strip()
-            data[key] = value
+        btn = driver.find_element(By.XPATH, "//a[contains(text(),'See more')]")
+        driver.execute_script("arguments[0].click();", btn)
+        time.sleep(1)
+        print("Expanded About")
     except:
         pass
 
-    # ======================
-    # ABOUT THIS ITEM (Bullets)
-    # ======================
-    try:
-        bullets = driver.find_elements(By.CSS_SELECTOR, "#feature-bullets li span")
-        about_text = " | ".join([b.text for b in bullets if b.text.strip()])
-        data["About this item"] = about_text
-    except:
-        data["About this item"] = ""
 
-    print("\nExtracted Fields:")
-    for k, v in data.items():
-        print(f"{k} : {v}")
+# ======================
+# EXTRACT KEY-VALUE TABLES
+# ======================
+def extract_tables():
+    data = {}
+    rows = driver.find_elements(By.XPATH, "//tr")
+
+    for row in rows:
+        try:
+            key = row.find_element(By.XPATH, ".//th").text.strip()
+            value = row.find_element(By.XPATH, ".//td").text.strip()
+            if key:
+                data[key] = value
+        except:
+            pass
 
     return data
 
 
 # ======================
-# SAVE TO EXCEL (BATCH)
+# TOP HIGHLIGHTS
 # ======================
-def save_batch(batch_data):
-    df = pd.DataFrame(batch_data)
+def extract_highlights():
+    data = {}
+    rows = driver.find_elements(By.CSS_SELECTOR, "#productOverview_feature_div tr")
+    for row in rows:
+        cols = row.find_elements(By.TAG_NAME, "td")
+        if len(cols) == 2:
+            key = cols[0].text.strip()
+            value = cols[1].text.strip()
+            data[key] = value
+    return data
 
+
+# ======================
+# ABOUT BULLETS
+# ======================
+def extract_about():
+    texts = []
+    bullets = driver.find_elements(By.CSS_SELECTOR, "#feature-bullets li span")
+    for b in bullets:
+        t = b.text.strip()
+        if t:
+            texts.append(t)
+    return " | ".join(texts)
+
+
+# ======================
+# GET PRODUCT LINKS
+# ======================
+def get_links():
+    driver.get(BASE_URL)
+    time.sleep(3)
+
+    links = []
+    items = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
+
+    for i in items:
+        href = i.get_attribute("href")
+        if href and "/dp/" in href:
+            links.append(href)
+        if len(links) >= TOTAL_PRODUCTS:
+            break
+
+    return links
+
+
+# ======================
+# EXTRACT PRODUCT
+# ======================
+def extract_product(url):
+    print("\nOpening:", url)
+    driver.get(url)
+    time.sleep(3)
+
+    deep_scroll()
+
+    # Expand sections
+    expand_about()
+    click_if_exists("Top highlights")
+    click_if_exists("Style")
+    click_if_exists("Materials & Care")
+    click_if_exists("Product details")
+
+    product = {}
+    product["URL"] = url
+
+    # Title
     try:
-        existing = pd.read_excel(OUTPUT_FILE)
-        df = pd.concat([existing, df], ignore_index=True)
+        product["Dress Name"] = driver.find_element(By.ID, "productTitle").text.strip()
     except:
         pass
 
-    df.to_excel(OUTPUT_FILE, index=False)
-    print(f"\nBatch saved. Total records: {len(df)}")
+    # Image
+    try:
+        product["Image link"] = driver.find_element(By.ID, "landingImage").get_attribute("src")
+    except:
+        pass
+
+    # Extract data
+    product.update(extract_highlights())
+    product.update(extract_tables())
+    product["About"] = extract_about()
+
+    print("\nExtracted Fields:")
+    for k, v in product.items():
+        print(k, ":", v)
+
+    return product
 
 
 # ======================
 # MAIN
 # ======================
 def main():
-    links = get_product_links()
-    batch_data = []
+    driver.get("https://www.amazon.in/")
+    input("Login if needed and press ENTER...")
+
+    links = get_links()
+    print("Collected:", len(links))
+
+    all_data = []
 
     for i, link in enumerate(links):
         print(f"\nProcessing {i+1}/{len(links)}")
-        try:
-            data = extract_product_data(link)
-            batch_data.append(data)
-        except Exception as e:
-            print("Error:", e)
+        data = extract_product(link)
+        all_data.append(data)
+        human_delay(4, 8)
 
-        # Save after each batch of 20
-        if (i + 1) % 20 == 0:
-            save_batch(batch_data)
-            batch_data = []
-            driver.refresh()
-            time.sleep(3)
-
-    # Save remaining
-    if batch_data:
-        save_batch(batch_data)
+    pd.DataFrame(all_data).to_excel(OUTPUT_FILE, index=False)
+    print("\nSaved to", OUTPUT_FILE)
 
     driver.quit()
-    print("\nScraping completed.")
 
 
 if __name__ == "__main__":
