@@ -28,35 +28,74 @@ wait = WebDriverWait(driver, 15)
 
 
 # =====================================
-# Config (Test Mode)
+# Config
 # =====================================
-BASE_URL = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls&page={}"
+BASE_URL = "https://www.amazon.in/s?k=ethnic+dresses+for+kids+girls&page=1"
 MAX_PRODUCTS = 10
-OUTPUT_FILE = "amazon_kids_clothes_fixed.xlsx"
+OUTPUT_FILE = "amazon_test.xlsx"
 
 data = []
 
 
 # =====================================
-# Helper function (flexible key match)
+# Helper: Slow scroll (important)
 # =====================================
-def get_value(details, keywords):
-    for key in details:
-        for k in keywords:
-            if k.lower() in key.lower():
-                return details[key]
-    return ""
+def scroll_full_page():
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    while True:
+        driver.execute_script("window.scrollBy(0, 500)")
+        time.sleep(1)
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
 
 
 # =====================================
-# Step 1: Open Search Page
+# Helper: Extract all key-value pairs
 # =====================================
-driver.get(BASE_URL.format(1))
-time.sleep(5)
+def extract_details():
+    details = {}
 
-products = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
+    # --- Top Highlights (MAIN TARGET) ---
+    rows = driver.find_elements(By.CSS_SELECTOR, "#productOverview_feature_div tr")
+    for row in rows:
+        cols = row.find_elements(By.TAG_NAME, "td")
+        if len(cols) >= 2:
+            key = cols[0].text.strip()
+            value = cols[1].text.strip()
+            details[key] = value
+
+    # --- Item details bullets ---
+    bullets = driver.find_elements(By.CSS_SELECTOR, "#detailBullets_feature_div li")
+    for b in bullets:
+        text = b.text
+        if ":" in text:
+            k, v = text.split(":", 1)
+            details[k.strip()] = v.strip()
+
+    # --- Product information table ---
+    rows2 = driver.find_elements(By.CSS_SELECTOR, "#productDetails_techSpec_section_1 tr")
+    for r in rows2:
+        try:
+            k = r.find_element(By.TAG_NAME, "th").text.strip()
+            v = r.find_element(By.TAG_NAME, "td").text.strip()
+            details[k] = v
+        except:
+            pass
+
+    return details
+
+
+# =====================================
+# Step 1: Open search page
+# =====================================
+driver.get(BASE_URL)
+time.sleep(4)
 
 links = []
+products = driver.find_elements(By.CSS_SELECTOR, "a.a-link-normal.s-no-outline")
+
 for p in products:
     link = p.get_attribute("href")
     if link and "/dp/" in link:
@@ -66,46 +105,41 @@ print("Collected links:", len(links))
 
 
 # =====================================
-# Step 2: Visit Products
+# Step 2: Visit products
 # =====================================
-for i, link in enumerate(links):
+for i, link in enumerate(links[:MAX_PRODUCTS]):
 
-    if len(data) >= MAX_PRODUCTS:
-        break
-
-    print("\nProcessing product:", i + 1)
-
+    print(f"\nProcessing product: {i+1}")
     driver.get(link)
 
-    # Wait for page load
+    # Wait for title
     try:
         wait.until(EC.presence_of_element_located((By.ID, "productTitle")))
     except:
-        print("Page load failed")
+        print("Title not loaded")
         continue
 
-    time.sleep(2)
-
     # Scroll to load dynamic sections
-    driver.execute_script("window.scrollTo(0, 800);")
+    scroll_full_page()
+
+    # Small wait after scroll
     time.sleep(2)
 
-    # ---------------- Basic Info ----------------
+    # Basic Info
     try:
         title = driver.find_element(By.ID, "productTitle").text.strip()
     except:
         title = ""
 
     try:
-        brand = driver.find_element(By.ID, "bylineInfo").text
-        brand = brand.replace("Visit the ", "").replace(" Store", "")
-    except:
-        brand = ""
-
-    try:
         price = driver.find_element(By.CSS_SELECTOR, ".a-price .a-offscreen").text
     except:
         price = ""
+
+    try:
+        brand = driver.find_element(By.ID, "bylineInfo").text
+    except:
+        brand = ""
 
     try:
         image = driver.find_element(By.ID, "imgTagWrapperId") \
@@ -114,93 +148,40 @@ for i, link in enumerate(links):
     except:
         image = ""
 
-    # =====================================
-    # Collect ALL Details
-    # =====================================
-    details = {}
+    # Extract all details
+    details = extract_details()
 
-    # ---------- Layout 1: Top Highlights (NEW) ----------
-    try:
-        overview = driver.find_element(By.ID, "productOverview_feature_div")
-        rows = overview.find_elements(By.TAG_NAME, "tr")
-
-        for row in rows:
-            try:
-                key = row.find_element(By.CSS_SELECTOR, "td.a-span3").text.strip()
-                value = row.find_element(By.CSS_SELECTOR, "td.a-span9").text.strip()
-                details[key] = value
-            except:
-                pass
-    except:
-        pass
-
-    # ---------- Layout 2: Bullet Details ----------
-    bullets = driver.find_elements(By.CSS_SELECTOR, "#detailBullets_feature_div li")
-    for b in bullets:
-        text = b.text
-        if ":" in text:
-            k, v = text.split(":", 1)
-            details[k.strip()] = v.strip()
-
-    # ---------- Layout 3: Technical Table ----------
-    rows = driver.find_elements(By.CSS_SELECTOR, "#productDetails_techSpec_section_1 tr")
-    for row in rows:
-        try:
-            k = row.find_element(By.TAG_NAME, "th").text.strip()
-            v = row.find_element(By.TAG_NAME, "td").text.strip()
-            details[k] = v
-        except:
-            pass
-
-    # ---------- Layout 4: Alternate Table ----------
-    rows2 = driver.find_elements(By.CSS_SELECTOR, "#productDetails_detailBullets_sections1 tr")
-    for row in rows2:
-        try:
-            k = row.find_element(By.TAG_NAME, "th").text.strip()
-            v = row.find_element(By.TAG_NAME, "td").text.strip()
-            details[k] = v
-        except:
-            pass
-
-    # Debug: see what Amazon actually provided
     print("Extracted keys:", list(details.keys()))
 
-    # =====================================
-    # Save Row
-    # =====================================
+    # Save selected fields
     data.append({
         "Dress Name": title,
         "Brand": brand,
         "Price": price,
-        "Gender": get_value(details, ["Department"]),
-        "Fabric Type": get_value(details, ["Material composition", "Fabric"]),
-        "Material Type": get_value(details, ["Material type"]),
-        "Closure type": get_value(details, ["Closure type"]),
-        "Care instructions": get_value(details, ["Care instructions"]),
-        "Age range description": get_value(details, ["Age range"]),
-        "Fit type": get_value(details, ["Fit type"]),
-        "Sleeve type": get_value(details, ["Sleeve"]),
-        "Neck style": get_value(details, ["Neck"]),
-        "Pattern": get_value(details, ["Pattern"]),
-        "Theme": get_value(details, ["Theme"]),
-        "Style": get_value(details, ["Style"]),
-        "Length": get_value(details, ["Length"]),
-        "Bottom Style": get_value(details, ["Bottom"]),
-        "Country of Origin": get_value(details, ["Country"]),
+        "Material composition": details.get("Material composition", ""),
+        "Material type": details.get("Material type", ""),
+        "Sleeve type": details.get("Sleeve type", ""),
+        "Neck style": details.get("Neck style", ""),
+        "Style": details.get("Style", ""),
+        "Length": details.get("Length", ""),
+        "Country of Origin": details.get("Country of Origin", ""),
+        "Department": details.get("Department", ""),
         "Product URL": link,
         "Image URL": image
     })
 
-    print("Collected:", len(data), "/", MAX_PRODUCTS)
+    print(f"Collected: {len(data)} / {MAX_PRODUCTS}")
+
     time.sleep(random.randint(2, 4))
 
 
 # =====================================
-# Save Excel
+# Save to Excel
 # =====================================
-pd.DataFrame(data).to_excel(OUTPUT_FILE, index=False)
+df = pd.DataFrame(data)
+df.to_excel(OUTPUT_FILE, index=False)
 
 driver.quit()
 
-print("\nScraping completed")
-print("Saved file:", OUTPUT_FILE)
+print("\nDone!")
+print("Saved:", OUTPUT_FILE)
