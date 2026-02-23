@@ -221,6 +221,23 @@ def main():
 
     print("\nSaved to:", OUTPUT_FILE)
 
+def main():
+    links = get_links()
+    all_data = []
+
+    for link in links:
+        try:
+            data = extract_product(link)
+            all_data.append(data)
+        except Exception as e:
+            print("Error:", e)
+
+        time.sleep(random.uniform(2, 4))
+
+    df = pd.DataFrame(all_data)
+    df.to_excel(OUTPUT_FILE, index=False)
+
+    print("\nSaved to:", OUTPUT_FILE)
 
 if __name__ == "__main__":
     main()
